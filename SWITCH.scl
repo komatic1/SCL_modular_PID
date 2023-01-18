@@ -1,0 +1,46 @@
+FUNCTION_BLOCK FB126
+TITLE =" switch"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : SWITCH
+VERSION : " 1.0"
+// reverse by dda
+(*
+Функциональный блок используется как мультиплексор с функцией
+И/ИЛИ по входу для двух входных/выходных сигналов.
+*)
+VAR_INPUT
+  INV1          : REAL ;            //входная переменная 1
+  INV2          : REAL ;            //входная переменная 2
+  INV1_ON       : BOOL ;            //соединить через INV 1
+  OUTV1_ON      : BOOL ;            //соединить через OUTV 1
+  COM_RST       : BOOL ;            //полный рестарт
+END_VAR
+VAR_OUTPUT
+  OUTV1         : REAL ;            //выходная переменная 1
+  OUTV2         : REAL ;            //выходная переменная 2
+END_VAR
+BEGIN
+IF COM_RST
+THEN
+    OUTV1:=0.0;
+    OUTV2:=0.0;
+ELSE
+    IF INV1_ON
+    THEN
+        IF OUTV1_ON
+        THEN
+            OUTV1:=INV1;
+        ELSE
+            OUTV2:=INV1;
+        END_IF;        
+    ELSE
+        IF OUTV1_ON
+        THEN
+            OUTV1:=INV2;
+        ELSE
+            OUTV2:=INV2;
+        END_IF;        
+    END_IF;
+END_IF;       
+END_FUNCTION_BLOCK
