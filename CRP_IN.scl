@@ -1,0 +1,31 @@
+FUNCTION_BLOCK FB102
+TITLE =" change range periphery input"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : CRP_IN
+VERSION : " 1.0"
+// reverse by komatic
+(*
+Преобразование входной аналоговой величины.
+Входная аналоговая величина
+преобразуется в числовое значение с плавающей запятой,
+которое используется ПИД-регулятором.
+*)
+VAR_INPUT
+  INV_PER           : WORD ;                        //входная переменная
+  FACTOR            : REAL  := 1.000000e+000;       //умножающий фактор
+  OFFSET            : REAL ;                        //сдвиг
+  START_ON          : BOOL  := TRUE;                //вывести стартовое значение
+  STARTVAL          : REAL ;                        //стартовое значение
+END_VAR
+VAR_OUTPUT
+  OUTV              : REAL ;                        //выходная переменная
+END_VAR
+BEGIN
+IF START_ON
+THEN
+    OUTV:=STARTVAL;
+ELSE
+    OUTV:= INT_TO_REAL(WORD_TO_INT(INV_PER)) * FACTOR * 100.0 / 27648.0 + OFFSET;
+END_IF;
+END_FUNCTION_BLOCK
