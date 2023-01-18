@@ -1,0 +1,29 @@
+FUNCTION_BLOCK FB103
+TITLE =" change range periphery output"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : CRP_OUT
+VERSION : " 1.0"
+// reverse by komatic
+(*
+В блоке производится приведение значений сигнала в формате
+чисел с плавающей точкой (формат внутреннего представления в
+модульном регуляторе) в значение сигнала в формате периферии.
+*)
+VAR_INPUT
+  INV           : REAL ;                        //входная  переменная
+  FACTOR        : REAL  := 1.000000e+000;       //умножающий фактор
+  OFFSET        : REAL ;                        //сдвиг
+END_VAR
+VAR_OUTPUT
+  OUTV_PER      : WORD ;                        //выходная переменная (периферия)
+END_VAR
+VAR_TEMP
+  rTemp         : REAL ;                        //выходная переменная (переферия)
+END_VAR
+BEGIN
+rTemp:=(FACTOR * INV + OFFSET) * 27648.0 / 100.0;
+IF rTemp >  32767.0 THEN rTemp:= 32767.0; END_IF;
+IF rTemp < -32768.0 THEN rTemp:=-32768.0; END_IF;   
+OUTV_PER:=INT_TO_WORD(REAL_TO_INT(rTemp));
+END_FUNCTION_BLOCK
