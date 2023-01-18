@@ -1,0 +1,83 @@
+FUNCTION_BLOCK FB107
+TITLE =" error_signal monitoring"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : ERR_MON
+VERSION : " 1.0"
+// reverse by komatic
+(*
+Контроль сигнала рассогласования.
+Вычисляет сигнал рассогласования и контролирует его граничные значения.
+*)
+VAR_INPUT
+  ER_LM             : REAL  := 1.000000e+001;   //error variable limit
+  ER_LMTD           : REAL  := 1.000000e+002;   //error-signal limit during time delay
+  SP                : REAL ;                    //задание
+  PV                : REAL ;                    //входная переменная
+  SP_DIFF           : REAL  := 1.000000e+001;   //setpoint differenz
+  TM_DELAY          : TIME  := T#1M;            //delay time of the monitoring signal
+  TM_RAMP           : TIME  := T#1M;            //time constant of ramp
+  COM_RST           : BOOL ;                    //полный рестарт
+  CYCLE             : TIME  := T#1S;            //время выполнения блока
+END_VAR
+VAR_OUTPUT
+  QER_LM            : BOOL ;                    //error-signal limit reached
+  QER_LMTD          : BOOL ;                    //error-signal limit during time delay reached
+  ER                : REAL ;                    //error signal
+END_VAR
+VAR
+  stTmDelay         : TIME ;   
+  srRampV           : REAL ;   
+  srSpOld           : REAL ;   
+END_VAR
+VAR_TEMP
+  drEr              : REAL ;                    //Zwischenspeicher ER
+  drErBtrg          : REAL ;                    //Betrag von ER
+  drSpDfBg          : REAL ;                    //Betrag der Sollwertдnderung
+  drDek             : REAL ;                    //Dekrement der Rampe
+  drTF              : REAL ;                    //Zeitfaktor
+  drCycle           : REAL ;                    //Abtastzeit in real
+  drTmRamp          : REAL ;                    //Rampenzeitkonstante in real
+END_VAR
+BEGIN
+QER_LM:=0;
+QER_LMTD:=0;
+IF COM_RST
+THEN
+    drEr:=0.0;
+    stTmDelay:=T#0MS;
+    srRampV:=0.0;
+    srSpOld:=0.0;
+ELSE
+    drEr:=SP - PV;
+    drErBtrg:=ABS(drEr);
+    drSpDfBg:=SP - srSpOld;
+    drSpDfBg:=ABS(drSpDfBg);
+    srSpOld:=SP;
+    IF drSpDfBg > SP_DIFF
+    THEN
+        stTmDelay:=TM_DELAY;
+        drCycle:=DINT_TO_REAL(TIME_TO_DINT(CYCLE));
+        drTmRamp:=DINT_TO_REAL(TIME_TO_DINT(TM_RAMP));
+        drTF:=drTmRamp / drCycle;
+        drDek:=(ER_LMTD - ER_LM) / drTF;
+        srRampV:=ER_LMTD;
+        IF drErBtrg >= srRampV THEN QER_LMTD:=1; END_IF;
+    ELSE
+        IF stTmDelay > CYCLE
+        THEN
+            stTmDelay:=stTmDelay - CYCLE;
+            IF drErBtrg >= ER_LMTD THEN QER_LMTD:=1; END_IF;
+        ELSE
+            IF srRampV > ER_LM
+            THEN
+                srRampV:=srRampV - drDek;
+                IF drErBtrg >= srRampV THEN QER_LMTD:=1; END_IF;
+            ELSE
+                IF drErBtrg>=ER_LM THEN QER_LM:=1; END_IF;
+            END_IF;
+        END_IF;
+    END_IF;
+END_IF;
+ER:=drEr;
+END_FUNCTION_BLOCK
