@@ -1,0 +1,22 @@
+FUNCTION_BLOCK FB123
+TITLE =" linear scaling"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : SCALE
+VERSION : " 1.0"
+// reverse by komatic
+(*
+Элемент   масштабирования. Масштабирует входную величину.
+Масштаб   задается углом наклона линейной характеристики.
+*)
+VAR_INPUT
+  INV           : REAL ;                    //входная переменная
+  FACTOR        : REAL  := 1.000000e+000;   //умножающий фактор
+  OFFSET        : REAL ;                    //сдвиг
+END_VAR
+VAR_OUTPUT
+  OUTV          : REAL ;                    //выходная переменная
+END_VAR
+BEGIN
+    OUTV:=INV * FACTOR + OFFSET;
+END_FUNCTION_BLOCK
