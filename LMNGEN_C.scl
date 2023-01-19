@@ -1,0 +1,255 @@
+FUNCTION_BLOCK FB113
+TITLE =" output continuous PID controller"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : LMNGEN_C
+VERSION : " 1.1"
+// reverse by dda
+(*
+Блок используется в структурах ПИД-регуляторов непрерывного
+управления. Он содержит схему формирования управляющей
+переменной регулятора.
+Блок содержит переключатель режимов работы ("Ручной"/
+"Автоматический"). В ручном режиме Вы можете определять
+абсолютное значение, уменьшать или увеличивать значение
+управляющего сигнала с помощью ключей.
+Управляющий сигнал, а также скорость его изменения могут быть
+ограничены граничными величинами, заданными пользователем.
+Данный блок всегда используется вместе с блоком ПИД-алгоритма
+регулятора.
+*)
+VAR_INPUT
+  MAN           : REAL ;                    //manual value
+  LMN_HLM       : REAL  := 1.000000e+002;   //manipulated value high limit
+  LMN_LLM       : REAL ;                    //manipulated value low limit
+  LMN_URLM      : REAL  := 1.000000e+001;   //manipulated value up rate limit
+  LMN_DRLM      : REAL  := 1.000000e+001;   //manipulated down rate limit
+  DF_OUTV       : REAL ;                    //default output variable
+  MAN_ON        : BOOL  := TRUE;            //manual value on
+  MANGN_ON      : BOOL ;                    //manual value generating on
+  MANUP         : BOOL ;                    //manual value up
+  MANDN         : BOOL ;                    //manual value down
+  LMNRC_ON      : BOOL ;                    //manipulated value rate of change on
+  DFOUT_ON      : BOOL ;                    //default output variable on
+  COM_RST       : BOOL ;                    //complete restart
+  CYCLE         : TIME  := T#1S;            //sample time
+  PID_LMNG  : STRUCT   
+   PID_OUTV     : REAL ;                    //PID output variable
+   PID_SCTR     : REAL ;                    //PID output variable for step controller
+  END_STRUCT ;   
+END_VAR
+VAR_OUTPUT
+  LMN           : REAL ;                    //manipulated value
+  QLMN_HLM      : BOOL ;                    //high limit of manipulated value reached
+  QLMN_LLM      : BOOL ;                    //low limit of manipulated value reached
+  LMNG_PID  : STRUCT    
+   LMN          : REAL ;                    //manipulated value
+   LMN_HLM      : REAL ;                    //manipulated value high limit
+   LMN_LLM      : REAL ;                    //manipulated value low limit
+   R_MTR_TM     : REAL ;                    //motor manipulated value
+   ARWHL_ON     : BOOL ;                    //anti reset wind-up in high limit on
+   ARWLL_ON     : BOOL ;                    //anti reset wind-up in low limit on
+   MAN_ON       : BOOL ;                    //manual mode on
+   LMNGS_ON     : BOOL ;                    //PID-algorithm for step controller on
+   LMNR_ON      : BOOL ;                    //repeated manipulated value on
+  END_STRUCT ;   
+END_VAR
+VAR
+  MP1           : REAL ;                    //MP1: manipulated value
+  LMN_OP        : REAL ;                    //manipulated value operation
+  LMNOP_ON      : BOOL ;                    //manipulated value operation on
+  stUpMan       : TIME ;   
+  stDownMan     : TIME ;   
+END_VAR
+VAR_TEMP
+  Hvar          : REAL ;                    //Hilfsvariable
+  rCycle        : REAL ;                    //Abtastzeit in real
+  Pid_Outv      : REAL ;                    //PID output variable
+  dLmn          : REAL ;                    //Stellwert
+  bArwhlOn      : BOOL ;                    //Anti Reset Wind-up high limit Bit fьr Struktur PID_LMNG
+  bArwllOn      : BOOL ;                    //Anti Reset Wind-up low limit Bit fьr Struktur PID_LMNG
+END_VAR
+BEGIN
+bArwhlOn:=0;
+bArwllOn:=0;
+rCycle:=DINT_TO_REAL(TIME_TO_DINT(CYCLE))/1000.0;
+IF COM_RST OR DFOUT_ON
+THEN
+    dLmn:=DF_OUTV;
+    MP1:=0.0;
+    stUpMan:=T#0MS;
+    stDownMan:=T#0MS;
+    IF COM_RST
+    THEN
+        LMN:=DF_OUTV;
+    END_IF; 
+ELSE
+    Pid_Outv:=PID_LMNG.PID_OUTV;
+    IF MAN_ON
+    THEN
+        IF MANGN_ON
+        THEN 
+            IF NOT (MANUP OR QLMN_LLM) AND MANDN
+            THEN
+                stUpMan:=T#0MS;
+                stDownMan:=stDownMan+CYCLE;
+                IF stDownMan > T#3S
+                THEN
+                    dLmn:=LMN-((LMN_HLM-LMN_LLM)*rCycle/10.0);
+                ELSE
+                    dLmn:=LMN-((LMN_HLM-LMN_LLM)*rCycle/100.0);
+                END_IF;
+            ELSE
+                IF NOT (MANDN OR QLMN_HLM) AND MANUP
+                THEN
+                    stDownMan:=T#0MS;
+                    stUpMan:=stUpMan+CYCLE;
+                    IF stUpMan > T#3S
+                    THEN
+                        dLmn:=LMN+((LMN_HLM-LMN_LLM)*rCycle/10.0);
+                    ELSE
+                        dLmn:=LMN+((LMN_HLM-LMN_LLM)*rCycle/100.0);
+                    END_IF;
+                ELSE
+                    stUpMan:=T#0S;
+                    stDownMan:=T#0S;
+                    dLmn:=LMN;                   
+                END_IF; 
+            END_IF;
+            IF dLmn > LMN_HLM
+            THEN
+                dLmn:=LMN_HLM;
+            ELSE
+                IF dLmn < LMN_LLM
+                THEN
+                    dLmn:=LMN_LLM;
+                END_IF;
+            END_IF;
+        ELSE
+            dLmn:=MAN;
+            stUpMan:=T#0MS;
+            stDownMan:=T#0MS;
+        END_IF;
+    ELSE
+        dLmn:=Pid_Outv;
+        stUpMan:=T#0MS;
+        stDownMan:=T#0MS;
+    END_IF;
+MP1:= dLmn;
+IF LMNOP_ON THEN dLmn:=LMN_OP; END_IF;              
+END_IF;
+//-----------------------------------
+IF LMNRC_ON
+THEN
+    IF LMN < 0.0
+    THEN
+        IF LMN > dLmn
+        THEN
+            Hvar:=LMN - (LMN_URLM*rCycle);
+            IF dLmn < Hvar
+            THEN
+                dLmn:=Hvar;
+                bArwllOn:=1;
+            END_IF;
+        ELSE     
+            IF LMN_DRLM=0.0
+            THEN
+                dLmn:=LMN;
+                bArwhlOn:=1;
+            ELSE
+                IF dLmn<=0.0
+                THEN
+                    Hvar:=LMN_DRLM*rCycle + LMN;
+                    IF dLmn > Hvar
+                    THEN
+                        dLmn:=Hvar;
+                        bArwhlOn:=1;
+                    END_IF;
+                ELSE
+                    Hvar:=(-LMN)/LMN_DRLM;
+                    IF Hvar <= rCycle
+                    THEN
+                        Hvar:=(rCycle-Hvar)*LMN_URLM;
+                        IF dLmn > Hvar
+                        THEN
+                            dLmn:=Hvar;
+                            bArwhlOn:=1;
+                        END_IF;
+                    ELSE
+                        dLmn:= rCycle*LMN_DRLM+LMN;
+                        bArwhlOn:=1;
+                    END_IF;
+                END_IF;   
+            END_IF;
+        END_IF;
+      ELSE   
+//-------------------
+            IF LMN<dLmn
+            THEN
+                Hvar:= LMN_URLM*rCycle + LMN;
+                IF dLmn>Hvar
+                THEN
+                    dLmn:=Hvar;
+                    bArwhlOn:=1;
+                END_IF;
+            ELSE
+                IF LMN_DRLM=0.0
+                THEN
+                    dLmn:=LMN;
+                    bArwllOn:=1;
+                ELSE     
+                    IF dLmn>=0.0
+                    THEN
+                        Hvar:=LMN-(LMN_DRLM*rCycle );
+                        IF dLmn<Hvar
+                        THEN
+                            dLmn:=Hvar;
+                            bArwllOn:=1;
+                        END_IF;
+                    ELSE
+                        Hvar:=LMN/LMN_DRLM;
+                        IF Hvar<=rCycle
+                        THEN
+                            Hvar:=(-(rCycle-Hvar))*LMN_URLM;
+                            IF dLmn<Hvar
+                            THEN
+                                dLmn:=Hvar;
+                                bArwllOn:=1;
+                            END_IF;
+                        ELSE
+                            dLmn:=LMN-(rCycle*LMN_DRLM);
+                            bArwllOn:=1;
+                        END_IF;
+                    END_IF;
+               END_IF; 
+          END_IF;
+    END_IF;
+END_IF;
+//-------------------------------
+IF dLmn>=LMN_HLM
+THEN
+    QLMN_HLM:=1;
+    QLMN_LLM:=0;
+    dLmn:=LMN_HLM;
+    bArwhlOn:=1;
+ELSE
+    QLMN_HLM:=0;
+    IF dLmn<=LMN_LLM
+    THEN
+        QLMN_LLM:=1;
+        dLmn:=LMN_LLM;
+        bArwllOn:=1;
+    ELSE
+        QLMN_LLM:=0;
+    END_IF;
+END_IF;
+LMN:=dLmn;
+LMNG_PID.LMN_HLM:=LMN_HLM;
+LMNG_PID.LMN_LLM:=LMN_LLM;
+LMNG_PID.LMN:=dLmn;
+LMNG_PID.ARWHL_ON:=bArwhlOn;
+LMNG_PID.ARWLL_ON:=bArwllOn;
+LMNG_PID.MAN_ON:=MAN_ON OR LMNOP_ON;
+LMNG_PID.LMNGS_ON:=0;
+LMNG_PID.LMNR_ON:=0;
+END_FUNCTION_BLOCK

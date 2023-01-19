@@ -1,0 +1,76 @@
+FUNCTION_BLOCK FB109
+TITLE =" first-order lag element"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : LAG1ST
+VERSION : " 1.0"
+// reverse by komatic
+(*
+Задержка 1 порядка. Реализует задержку первого порядка.
+*)
+VAR_INPUT
+  INV           : REAL ;                //входная переменная
+  TM_LAG        : TIME  := T#25S;       //время задержки
+  DF_OUTV       : REAL ;                //выход по умолчанию
+  TRACK         : BOOL ;                //трек включить OUTV = INV
+  DFOUT_ON      : BOOL ;                //включить выход по умолчанию
+  COM_RST       : BOOL ;                //полный рестарт
+  CYCLE         : TIME  := T#1S;        //время выполнения
+END_VAR
+VAR_OUTPUT
+  OUTV          : REAL ;                //выходная переменная
+END_VAR
+VAR
+  sRueck        : REAL ;   
+  sRest         : REAL ;   
+END_VAR
+VAR_TEMP
+  rTmLag        : REAL ;                //время задержки в real
+  rCycle        : REAL ;                //время выполнения в real
+  OutvNew       : REAL ;                //новое значение выхода
+  RueckAlt      : REAL ;                //Alter Rьckkopplungswert
+  Hvar          : REAL ;                //вспомогательная переменная
+  RueckDiff     : REAL ;                //Rьckkopplungsdifferenz
+END_VAR
+BEGIN
+IF COM_RST
+THEN                                                        // если полный рестарт
+    sRest:=0.0;
+    IF DFOUT_ON
+    THEN                // если включен выход по умолчанию
+        OutvNew:=DF_OUTV;
+        sRueck:=DF_OUTV;
+    ELSE                // иначе в полном рестарте выход равен нулю
+        OutvNew:=0.0;
+        sRueck:=0.0;
+    END_IF;   
+ELSE
+    IF DFOUT_ON
+    THEN                // если включен выход по умолчанию
+        OutvNew:=DF_OUTV;
+        sRueck:=DF_OUTV;
+    ELSE
+        IF TRACK
+        THEN            // если включен режим трекинга
+            OutvNew:=INV;
+            sRueck:=INV;
+            sRest:=0.0;
+        ELSE            // нормальный режим работы блока
+            rCycle:=DINT_TO_REAL(TIME_TO_DINT(CYCLE));
+      // перевод времени выполнения блока в real
+            rTmLag:=DINT_TO_REAL(TIME_TO_DINT(TM_LAG));
+     // перевод времени задержки в real
+     // время задержки не может быть меньше половины времени выполнения
+            IF rTmLag < rCycle * 0.5 THEN rTmLag:=rCycle * 0.5; END_IF;
+            RueckAlt:=sRueck;
+            Hvar:=rCycle /( 2.0 * rTmLag);
+            Hvar:= (INV - RueckAlt) * Hvar / (1.0 + Hvar);
+            OutvNew:=Hvar+RueckAlt;
+            RueckDiff:=2.0 * Hvar + sRest;
+            sRueck:=RueckDiff + RueckAlt; 
+            sRest:=RueckAlt - sRueck + RueckDiff;
+        END_IF;
+    END_IF;
+END_IF;
+OUTV:=OutvNew;
+END_FUNCTION_BLOCK

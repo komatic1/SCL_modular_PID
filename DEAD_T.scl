@@ -1,0 +1,52 @@
+// Блок был правлен в STL поэтому не совпадает по checksum с оригиналом
+// Не тестирован
+FUNCTION_BLOCK FB104
+TITLE =" dead time"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : DEAD_T
+VERSION : " 1.0"
+// reverse by komatic
+(*
+Время задержки.
+Вводит регулируемое время задержки прохождения входного сигнала.
+*)
+VAR_INPUT
+  INV           : REAL ;                //входная переменаня
+  DB_NBR        : BLOCK_DB ;            //номер блока данных
+  DEAD_TM       : TIME  := T#10S;       //время задержки
+  TRACK         : BOOL ;                //режим отслеживания OUTV=INV
+  COM_RST       : BOOL ;                //полный рестарт
+  CYCLE         : TIME  := T#1S;        //время выполнения
+END_VAR
+VAR_OUTPUT
+  OUTV          : REAL ;                //выходная переменная
+END_VAR
+VAR
+  siPtr         : INT  := 1;   
+END_VAR
+VAR_TEMP
+  diMax         : INT ;                 //количество записей в блоке данных
+  diLauf        : INT ;                 //счетчик в цикле
+  drOutv        : REAL ;                //промежуточная переменая для OUTV
+//  dDummy        : DWORD ;               //Platzhalter fьr L 8.1, LW 10
+END_VAR
+BEGIN
+// определяем количество записей в блоке данных
+diMax:= REAL_TO_INT(DINT_TO_REAL(TIME_TO_DINT(DEAD_TM)) / DINT_TO_REAL(TIME_TO_DINT(CYCLE)));
+IF COM_RST
+THEN    // Сброс
+    drOutv:=0.0;
+    siPtr:=1;
+    FOR diLauf:=1 TO diMax BY 1 DO // задача этого цикла записать 0.0 в весь блок данных
+       DB_NBR.DD[(diLauf-1)*4]:=REAL_TO_DWORD(drOutv); 
+    END_FOR;                      
+ELSE    // Нормальная работа
+    IF (siPtr > diMax) OR (siPtr < 1) THEN siPtr:=1; END_IF;
+    drOutv:=DWORD_TO_REAL(DB_NBR.DD[(siPtr-1)*4]);
+    DB_NBR.DD[(siPtr-1)*4]:=REAL_TO_DWORD(INV);
+    siPtr:=siPtr+1;
+    IF TRACK THEN drOutv:=INV; END_IF; 
+END_IF;
+OUTV:=drOutv;
+END_FUNCTION_BLOCK

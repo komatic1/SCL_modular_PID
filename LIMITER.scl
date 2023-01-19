@@ -1,0 +1,46 @@
+FUNCTION_BLOCK FB112
+TITLE =" limiter"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : LIMITER
+VERSION : " 1.0"
+// reversed by komatic
+(*
+Ограничитель. Ограничивает входную величину заданными значениями.
+*)
+VAR_INPUT
+  INV           : REAL ;                        //входная переменная
+  H_LM          : REAL  := 1.000000e+002;       //верхний предел
+  L_LM          : REAL ;                        //нижний предел
+  COM_RST       : BOOL ;                        //полный рестарт
+END_VAR
+VAR_OUTPUT
+  OUTV          : REAL ;                        //output variable
+  QH_LM         : BOOL ;                        //high limit reached
+  QL_LM         : BOOL ;                        //low limit reached
+END_VAR
+BEGIN
+IF COM_RST                                      //если полный сброс
+THEN
+    QH_LM:=0;                                   //обнуляем выходные переменные
+    QL_LM:=0;
+    OUTV:=0.0;
+ELSE
+    IF INV >= H_LM                              //если вход больше верхнего предела
+    THEN
+        QL_LM:=0;                              
+        QH_LM:=1;                               //признак выход за верхний предел
+        OUTV:=H_LM;                             //выход равен верхнему пределу
+    ELSE
+        QH_LM:=0;
+        IF INV <= L_LM                          //если выход меньше нижнего предела
+        THEN
+            QL_LM:=1;                           //признак выхода за верхней предел
+            OUTV:=L_LM;                         //выход равен нижнему пределу
+        ELSE
+            QL_LM:=0;
+            OUTV:=INV;                          //выход равен входу
+        END_IF;
+    END_IF;
+END_IF;
+END_FUNCTION_BLOCK

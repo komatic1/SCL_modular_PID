@@ -1,0 +1,377 @@
+FUNCTION_BLOCK FB114
+TITLE =" output PID step controller"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : LMNGEN_S
+VERSION : " 1.2"
+// reverse by dda
+(*
+Блок используется в структурах ПИД-регуляторов пошагового
+управления с приводами, имеющими интегрирующий компонент
+(например, вентиль, управляемый электродвигателем). Блок
+содержит схему формирования управляющей переменной
+регулятора. Регулятор пошагового управления может работать как
+с сигналом позиционной обратной связи, так и без него.
+*)
+VAR_INPUT
+  MAN           : REAL ;                    //manual value
+  LMN_HLM       : REAL  := 1.000000e+002;   //manipulated value high limit
+  LMN_LLM       : REAL ;                    //manipulated value low limit
+  LMNR_IN       : REAL ;                    //repeated manipulated value
+  MTR_TM        : TIME  := T#30S;           //motor manipulated value
+  PULSE_TM      : TIME  := T#3S;            //minimum pulse time
+  BREAK_TM      : TIME  := T#3S;            //minimum break time
+  MAN_ON        : BOOL ;                    //manual value on
+  MANGN_ON      : BOOL ;                    //manual value generating on
+  MANUP         : BOOL ;                    //manual value up
+  MANDN         : BOOL ;                    //manual value down
+  LMNR_ON       : BOOL ;                    //repeated manipulated value on
+  LMNR_HS       : BOOL ;                    //high limit signal of repeated manipulated value
+  LMNR_LS       : BOOL ;                    //low limit signal of repeated manipulated value
+  LMNS_ON       : BOOL  := TRUE;            //manipulated signals on
+  LMNUP         : BOOL ;                    //manipulated signals up
+  LMNDN         : BOOL ;                    //manipulated signals down
+  COM_RST       : BOOL ;                    //complete restart
+  CYCLE         : TIME  := T#1S;            //sample time
+  PID_LMNG  : STRUCT    
+   PID_OUTV     : REAL ;                    //PID output variable
+   PID_SCTR     : REAL ;                    //PID output variable for step controller
+  END_STRUCT ;   
+END_VAR
+VAR_OUTPUT
+  LMN           : REAL ;                    //manipulated value
+  QLMNUP        : BOOL ;                    //manipulated signal up
+  QLMNDN        : BOOL ;                    //manipulated signal down
+  QLMN_HLM      : BOOL ;                    //high limit of manipulated value reached
+  QLMN_LLM      : BOOL ;                    //low limit of manipulated value reached
+  LMNG_PID  : STRUCT    
+   LMN          : REAL ;                    //manipulated value
+   LMN_HLM      : REAL ;                    //manipulated value high limit
+   LMN_LLM      : REAL ;                    //manipulated value low limit
+   R_MTR_TM     : REAL ;                    //motor manipulated value
+   ARWHL_ON     : BOOL ;                    //anti reset wind-up in high limit on
+   ARWLL_ON     : BOOL ;                    //anti reset wind-up in low limit on
+   MAN_ON       : BOOL ;                    //manual mode on
+   LMNGS_ON     : BOOL ;                    //PID-algorithm for step controller on
+   LMNR_ON      : BOOL ;                    //repeated manipulated value on
+  END_STRUCT ;   
+END_VAR
+VAR
+  LMNSOPON      : BOOL ;                    //manipulated signal operation on
+  LMNUP_OP      : BOOL ;                    //manipulated signal up operation
+  LMNDN_OP      : BOOL ;                    //manipulated signal down operation
+  LMNOP_ON      : BOOL ;                    //manipulated value operation on
+  LMNRS_ON      : BOOL ;                    //simulation of the repeated manipulated value on
+  MP1           : REAL ;                    //MP1: manipulated value
+  LMN_OP        : REAL ;                    //manipulated value operation
+  LMNRSVAL      : REAL ;                    //repeated manipulated start value in simulation
+  LMNR_SIM      : REAL ;                    //repeated manipulated value simulated
+  stUpMan       : TIME ;   
+  stDownMan     : TIME ;   
+  siImpAus      : INT ;   
+  stImpDauer    : TIME ;   
+  stPausDauer   : TIME ;   
+  sInt          : REAL ;   
+  sThrOn        : REAL ;   
+END_VAR
+VAR_TEMP
+  rPidOutv      : REAL ;                    //PID output variable
+  rPidSctr      : REAL ;                    //PID output variable for step controller
+  dLmn          : REAL ;                    //Stellwert
+  LmnHlm        : REAL ;                    //Stellwert obere Begrenzung
+  LmnLlm        : REAL ;                    //Stellwert untere Begrenzung
+  Diff          : REAL ;                    //Дnderungswert bei der Handwertbedienung
+  rCycle        : REAL ;                    //Abtastzeit in real
+  AdapIn1       : REAL ;                    //Eingang 1 der Adaption der Ansprechschwelle
+  AdapIn2       : REAL ;                    //Eingang 2 der Adaption der Ansprechschwelle
+  ThreeStepIn   : REAL ;                    //Eingang des Dreipunktgliedes
+  iImpEin       : INT ;                     //Eingang des Impulsformers
+  rMtrTm        : REAL ;                    //Motorstellzeit in real
+  rMinThrOn     : REAL ;                    //Hilfsvariable
+  rThrOff       : REAL ;                    //Abschaltschwelle
+  IntIn         : REAL ;                    //Eingang des Integrierers in der Rьckfьhrung
+  LmnrSim       : REAL ;                    //simulierte Stellungsrьckmeldung
+  bArwHLmOn     : BOOL ;                    //Anti Reset Wind-up Bit obere Grenze fьr Struktur PID_LMNG
+  bArwLLmOn     : BOOL ;                    //Anti Reset Wind-up Bit untere Grenze fьr Struktur PID_LMNG
+END_VAR
+BEGIN
+bArwHLmOn:=LMNR_HS;
+bArwLLmOn:=LMNR_LS;
+rMtrTm:=DINT_TO_REAL(TIME_TO_DINT(MTR_TM))/1000.0;
+IF COM_RST
+THEN
+    LMN:=0.0;
+    QLMNUP:=0;
+    QLMNDN:=0;
+    QLMN_HLM:=0;
+    QLMN_LLM:=0;
+    LMNR_SIM:=LMNRSVAL;
+    LMNRS_ON:=0;
+    MP1:=0.0;
+    stUpMan:=T#0MS;
+    stDownMan:=T#0MS;
+    siImpAus:=0;
+    stImpDauer:=T#0MS;
+    stPausDauer:=T#0MS;
+    sInt:=0.0;
+    sThrOn:=0.0;
+ELSE
+    rPidOutv:=PID_LMNG.PID_OUTV;
+    rPidSctr:=PID_LMNG.PID_SCTR;
+    rCycle:=DINT_TO_REAL(TIME_TO_DINT(CYCLE))/1000.0;
+    IF LMNR_ON
+    THEN
+        IF MAN_ON
+        THEN
+            IF MANGN_ON
+            THEN
+                IF NOT (MANUP OR QLMN_LLM) AND MANDN
+                THEN
+                    stUpMan:=T#0MS;
+                    stDownMan:=stDownMan+CYCLE;
+                    IF stDownMan > T#3S
+                    THEN
+                        dLmn:=LMN-((LMN_HLM-LMN_LLM)*rCycle/10.0);
+                    ELSE
+                        dLmn:=LMN-((LMN_HLM-LMN_LLM)*rCycle/100.0);
+                    END_IF;
+                ELSE
+                    IF NOT (MANDN OR QLMN_HLM) AND MANUP
+                    THEN
+                        stDownMan:=T#0MS;
+                        stUpMan:=stUpMan+CYCLE;
+                        IF stUpMan>T#3S
+                        THEN
+                            dLmn:=LMN+((LMN_HLM-LMN_LLM)*rCycle/10.0);
+                        ELSE
+                            dLmn:=LMN+((LMN_HLM-LMN_LLM)*rCycle/100.0);
+                        END_IF;   
+             ELSE
+                        stUpMan:=T#0MS;
+                        stDownMan:=T#0MS;
+                        dLmn:=LMN;
+                    END_IF;
+                END_IF;
+                IF dLmn > LMN_HLM
+                THEN
+                    dLmn:=LMN_HLM;
+                ELSE
+                    IF dLmn < LMN_LLM
+                    THEN
+                        dLmn:=LMN_LLM;
+                    END_IF;
+                END_IF;
+            ELSE
+                dLmn:=MAN;
+                stUpMan:=T#0MS;
+                stDownMan:=T#0MS;
+            END_IF;
+        ELSE
+            dLmn:=rPidOutv;
+            stUpMan:=T#0MS;
+            stDownMan:=T#0MS;
+        END_IF;
+        MP1:=dLmn;
+        IF LMNOP_ON THEN dLmn:=LMN_OP; END_IF;
+        IF dLmn>=LMN_HLM
+        THEN
+            QLMN_HLM:=1;
+            QLMN_LLM:=0;
+            dLmn:=LMN_HLM;
+            IF LMNR_IN >= dLmn THEN bArwHLmOn:=1; END_IF;
+        ELSE
+            QLMN_HLM:=0;
+            IF dLmn <= LMN_LLM
+            THEN
+                QLMN_LLM:=1;
+                dLmn:=LMN_LLM;
+                IF LMNR_IN <= dLmn THEN bArwLLmOn:=1; END_IF;
+            ELSE
+                QLMN_LLM:=0;
+            END_IF;
+        END_IF;
+        sInt:=0.0;
+        ThreeStepIn:=dLmn-LMNR_IN;
+        AdapIn1:=dLmn-rPidSctr;
+        AdapIn2:=LMNR_IN-rPidSctr;
+    ELSE
+        LmnHlm:=100.0;
+        LmnLlm:=-100.0;
+        IF LMNS_ON
+        THEN
+            sInt:=0.0;
+        ELSE
+            IF siImpAus <> 0
+            THEN
+                IntIn:=DINT_TO_REAL(INT_TO_DINT(siImpAus))*rCycle/rMtrTm;
+            ELSE
+                IF ((rPidSctr > 0.0) AND bArwHLmOn) OR ((rPidSctr < 0.0) AND  bArwLLmOn)
+                THEN
+                    IntIn:=0.0;
+   ELSE
+                    IntIn:=(-rPidSctr)*rCycle;
+                END_IF;
+            END_IF;
+            sInt:=sInt+IntIn;
+        END_IF;
+        stUpMan:=T#0MS;
+        stDownMan:=T#0MS;
+        QLMN_HLM:=0;
+        QLMN_LLM:=0;
+        dLmn:=0.0;
+        MP1:=0.0;
+        ThreeStepIn:=rPidOutv-sInt;
+        AdapIn1:=rPidOutv;
+        AdapIn2:=sInt;
+    END_IF;
+    rThrOff:=55.0/rMtrTm*rCycle;
+    IF PULSE_TM>CYCLE
+    THEN
+        rMinThrOn:=DINT_TO_REAL(TIME_TO_DINT(PULSE_TM))/1000.0;
+    ELSE
+        rMinThrOn:=rCycle;
+    END_IF;
+    rMinThrOn:=100.0*rMinThrOn/rMtrTm;
+    IF NOT (((MAN_ON OR LMNOP_ON OR QLMN_HLM OR QLMN_LLM) AND LMNR_ON) OR LMNR_HS OR LMNR_LS)
+    THEN
+        IF NOT (QLMNUP OR QLMNDN)
+        THEN
+            AdapIn1:=ABS(AdapIn1);
+            AdapIn2:=ABS(AdapIn2);
+            IF AdapIn1 < AdapIn2
+            THEN
+                sThrOn:=AdapIn1;
+            ELSE
+                sThrOn:=AdapIn2;
+            END_IF;
+            IF sThrOn>10.0      THEN sThrOn:=10.0;      END_IF;
+            IF sThrOn<rMinThrOn THEN sThrOn:=rMinThrOn; END_IF;
+        END_IF;       
+    ELSE           
+        sThrOn:=rMinThrOn;          
+    END_IF;       
+   IF ((siImpAus=100) AND (ThreeStepIn>rThrOff)) OR (ThreeStepIn>=sThrOn)
+    THEN
+        iImpEin:=100;
+    ELSE
+        IF ((siImpAus=-100) AND (ThreeStepIn<-rThrOff)) OR (ThreeStepIn<=-sThrOn)
+        THEN
+            iImpEin:=-100;
+        ELSE
+            iImpEin:=0;
+        END_IF;
+    END_IF;
+    IF LMNS_ON
+    THEN
+        IF LMNUP XOR LMNDN
+        THEN
+            IF LMNUP
+            THEN
+                iImpEin:=100;
+            ELSE
+                iImpEin:=-100;
+            END_IF;
+        ELSE
+            iImpEin:=0;
+        END_IF;
+    END_IF;
+    IF LMNSOPON
+    THEN
+        IF LMNUP_OP XOR LMNDN_OP
+        THEN
+            IF LMNUP_OP
+            THEN
+                iImpEin:=100;
+            ELSE
+                iImpEin:=-100;
+            END_IF;
+        ELSE
+            iImpEin:=0;
+        END_IF;
+    END_IF;
+    IF ((iImpEin=100) AND LMNR_HS) OR ((iImpEin=-100) AND LMNR_LS)
+    THEN
+        iImpEin:=0;
+    END_IF;
+    IF ((siImpAus=-100) AND (iImpEin=100)) OR ((siImpAus=100) AND (iImpEin=-100))
+    THEN
+        iImpEin:=0;
+    END_IF;
+    IF siImpAus<>iImpEin
+    THEN
+        IF iImpEin=0
+        THEN
+            IF stImpDauer<=T#0MS
+            THEN
+                siImpAus:=0;
+                stPausDauer:=BREAK_TM;
+            END_IF;
+        ELSE
+            IF stPausDauer<=T#0MS
+            THEN
+                siImpAus:=iImpEin;
+                stImpDauer:=PULSE_TM;
+            END_IF;
+        END_IF;
+    END_IF;
+    IF stImpDauer>T#0MS
+    THEN
+        stImpDauer:=stImpDauer-CYCLE;
+    ELSE
+        stImpDauer:=T#0MS;
+    END_IF;
+    IF stPausDauer>T#0MS
+    THEN
+        stPausDauer:=stPausDauer-CYCLE;
+    ELSE
+        stPausDauer:=T#0MS;
+    END_IF;
+    IF ((siImpAus=100) AND LMNR_HS) OR ((siImpAus=-100) AND LMNR_LS)
+    THEN
+        siImpAus:=0;
+        stImpDauer:=T#0MS;
+    END_IF;
+    IF (NOT LMNRS_ON) OR LMNR_ON
+    THEN
+        LmnrSim:=LMNRSVAL;
+    ELSE
+        LmnrSim:=INT_TO_REAL(siImpAus)*rCycle/rMtrTm+LMNR_SIM;
+        IF LmnrSim>=100.0
+        THEN
+            LmnrSim:=100.0;
+        ELSE
+            IF LmnrSim<=0.0
+            THEN
+                LmnrSim:=0.0;
+            END_IF;     
+        END_IF;
+    END_IF;
+    LMN:=dLmn;
+    LMNR_SIM:=LmnrSim;
+    IF siImpAus=0
+    THEN
+        QLMNUP:=0;
+        QLMNDN:=0;
+    ELSE
+        IF siImpAus=100
+        THEN
+            QLMNUP:=1;
+            QLMNDN:=0;
+            bArwHLmOn:=1;
+        ELSE
+            QLMNUP:=0;
+            QLMNDN:=1;
+            bArwLLmOn:=1;
+        END_IF;
+    END_IF;
+END_IF;
+LMNG_PID.LMN:= LMN;
+LMNG_PID.LMN_HLM:=LMN_HLM;
+LMNG_PID.LMN_LLM:=LMN_LLM;
+LMNG_PID.ARWHL_ON:=bArwHLmOn;
+LMNG_PID.ARWLL_ON:=bArwLLmOn;
+LMNG_PID.R_MTR_TM:=rMtrTm;
+LMNG_PID.MAN_ON:=((MAN_ON OR LMNOP_ON) AND LMNR_ON) OR LMNS_ON OR LMNSOPON;
+LMNG_PID.LMNGS_ON:=1;
+LMNG_PID.LMNR_ON:=LMNR_ON;
+END_FUNCTION_BLOCK

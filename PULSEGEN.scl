@@ -1,0 +1,205 @@
+FUNCTION_BLOCK FB120
+TITLE =" pulse generator"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : PULSEGEN
+VERSION : " 1.1"
+// reverse by komatic
+(*
+Блок PULSEGEN используется для создания структуры ПИД-регулятора
+с импульсным выходом для пропорциональных приводов. Блок
+PULSEGEN может использоваться в регуляторах с трехуровневым и
+двухуровневым импульсным выходом с ШИМ-модуляцией.
+Используя ШИМ-модуляцию, блок PULSEGEN трансформирует
+входную переменную INV (для блока генератора импульсов
+входной переменной INV является управляющая переменная LMN
+PID-блока) в последовательность импульсов, имеющих
+постоянный период PER_TM. Этот период соответствует периоду
+времени, с которым происходит обновление входной переменной.
+*)
+VAR_INPUT
+  INV       : REAL ;                    //входная переменная
+  PER_TM    : TIME  := T#1S;            //период
+  P_B_TM    : TIME  := T#50MS;          //минимальный импульс/пауза
+  RATIOFAC  : REAL  := 1.000000e+000;   //фактор соотношения
+  STEP3_ON  : BOOL  := TRUE;            //трехуровневый сигнал включить
+  ST2BI_ON  : BOOL ;                    //двухуровневый сигнал для биполярного выхода
+  MAN_ON    : BOOL ;                    //включить ручной режим
+  POS_P_ON  : BOOL ;                    //положительный импульс
+  NEG_P_ON  : BOOL ;                    //отрицательный импульс
+  SYN_ON    : BOOL  := TRUE;            //импульс выходной синхронизации
+  COM_RST   : BOOL ;                    //полный рестарт
+  CYCLE     : TIME  := T#10MS;          //время выполнения
+END_VAR
+VAR_OUTPUT
+  QPOS_P    : BOOL ;                    //положительный импульс
+  QNEG_P    : BOOL ;                    //отрицательный импульс
+END_VAR
+VAR
+  sInvAlt   : REAL ;   
+  siZaehlPer : INT ;   
+  siZaehlPTm : INT ;   
+  sbPosP    : BOOL  := TRUE;   
+END_VAR
+VAR_TEMP
+  rCycle    : REAL ;                    //Abtastzeit in real
+  rPerTm    : REAL ;                    //Periodendauer in real
+  rMinPTm   : REAL ;                    //Mindestimpulsdauer in real
+  rRatioFac : REAL ;                    //Verhдltnisfaktor
+  Offset    : REAL ;                    //Offset
+  PTm       : REAL ;                    //Impulsdauer
+  PTmHlm    : REAL ;                    //Obere Begrenzung der Impulsdauer
+  PTmLlm    : REAL ;                    //Untere Begrenzung der Impulsdauer
+END_VAR
+BEGIN
+IF COM_RST
+THEN
+    QPOS_P:=0;
+    QNEG_P:=0;
+    siZaehlPer:=0;
+    siZaehlPTm:=0;
+    sbPosP:=1;
+ELSE
+    IF MAN_ON
+    THEN
+        IF STEP3_ON
+        THEN
+            IF POS_P_ON XOR NEG_P_ON
+            THEN
+                IF POS_P_ON
+                THEN
+                    QPOS_P:=1;
+                    QNEG_P:=0;
+                ELSE
+                    QPOS_P:=0;
+                    QNEG_P:=1;
+                END_IF;
+            ELSE
+                QPOS_P:=0;
+                QNEG_P:=0;
+            END_IF;
+        ELSE
+            IF POS_P_ON
+            THEN
+                QPOS_P:=1;
+                QNEG_P:=0;
+            ELSE
+                QPOS_P:=0;
+                QNEG_P:=1;
+            END_IF;
+        END_IF;
+        siZaehlPer:=0;
+        siZaehlPTm:=0;
+        sbPosP:=1;
+    ELSE
+        IF  siZaehlPer <= 0
+        THEN
+            rCycle:=DINT_TO_REAL(TIME_TO_DINT(CYCLE));
+            rPerTm:=DINT_TO_REAL(TIME_TO_DINT(PER_TM));
+            rMinPTm:=DINT_TO_REAL(TIME_TO_DINT(P_B_TM));
+            siZaehlPer:=DINT_TO_INT(REAL_TO_DINT(rPerTm/rCycle));   
+            IF siZaehlPer < 0
+            THEN
+                siZaehlPer:=0;
+            END_IF;
+            IF STEP3_ON
+            THEN
+                IF INV > 0.0
+                THEN
+                    IF RATIOFAC > 1.0
+                    THEN
+                        rRatioFac:=1.0/RATIOFAC;
+                    ELSE
+                        rRatioFac:=1.0;
+                    END_IF;
+                    sbPosP:=1;
+                ELSE
+                    IF RATIOFAC > 1.0
+                    THEN
+                        rRatioFac:=1.0;
+                    ELSE
+                        rRatioFac:=RATIOFAC;
+                    END_IF;
+                    sbPosP:=0;
+                END_IF;
+                Offset:=0.0;
+            ELSE
+                IF ST2BI_ON
+                THEN
+                    IF INV<-100.0
+                    THEN
+                        Offset:=0.0;
+                        rRatioFac:=0.0;
+                    ELSE
+                        Offset:=0.5*rPerTm;
+                        rRatioFac:=0.5;
+                    END_IF;
+                ELSE
+                    Offset:=0.0;
+                    IF INV < 0.0
+                    THEN
+                        rRatioFac:=0.0;
+                    ELSE
+                        rRatioFac:=1.0;
+                    END_IF;
+                END_IF;
+                sbPosP:=1;
+            END_IF;
+            PTm:=ABS(INV*rRatioFac*rPerTm*0.01+Offset);
+            IF (NOT STEP3_ON) AND ST2BI_ON
+            THEN
+                rRatioFac:=1.0;
+            END_IF;
+            PTmHlm:=(rPerTm-rMinPTm)*rRatioFac;
+            PTmLlm:=rMinPTm*rRatioFac;
+            IF PTm > PTmHlm
+            THEN
+                PTm:=rPerTm*rRatioFac;
+            END_IF;
+            siZaehlPTm:=DINT_TO_INT(REAL_TO_DINT(PTm/rCycle));
+            IF PTm < PTmLlm
+            THEN
+                siZaehlPTm:=0;
+            END_IF;
+        END_IF;
+        IF ((INV <> sInvAlt) AND SYN_ON) AND (siZaehlPer > 2)
+        THEN
+            siZaehlPer:=1;
+            siZaehlPTm:=0;
+        END_IF;
+        IF STEP3_ON
+        THEN
+            IF siZaehlPTm = 0
+            THEN
+                QPOS_P:=0;
+                QNEG_P:=0;
+            ELSE
+                IF sbPosP
+                THEN
+                    QPOS_P:=1;
+                    QNEG_P:=0;
+                ELSE
+                    QPOS_P:=0;
+                    QNEG_P:=1;
+                END_IF;
+            END_IF;
+        ELSE
+            IF siZaehlPTm = 0              
+            THEN
+                QPOS_P:=0;
+            ELSE
+                QPOS_P:=1;
+            END_IF;
+            QNEG_P:= NOT QPOS_P;
+        END_IF;
+        siZaehlPer:=siZaehlPer-1;
+        IF siZaehlPTm>0
+        THEN
+             siZaehlPTm:=siZaehlPTm-1;
+        ELSE
+            siZaehlPTm:=0;
+        END_IF;
+    END_IF;
+END_IF;
+sInvAlt:=INV;               
+END_FUNCTION_BLOCK

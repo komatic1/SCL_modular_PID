@@ -1,0 +1,82 @@
+FUNCTION_BLOCK FB108
+TITLE =" integrator"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : INTEG
+VERSION : " 1.0"
+// reverse by komatic
+(*
+Интегратор. Интегрирует входной сигнал по времени и
+контролирует граничные значения выходного сигнала.
+*)
+VAR_INPUT
+  INV           : REAL ;                    //входная переменная
+  H_LM          : REAL  := 1.000000e+002;   //верхняя граница
+  L_LM          : REAL ;                    //нижняя граница
+  TI            : TIME  := T#25S;           //время интегрирования
+  DF_OUTV       : REAL ;                    //выходное значение по умолчанию
+  HOLD          : BOOL ;                    //удержание интегратора
+  DFOUT_ON      : BOOL ;                    //выдать выходное значение по умолчанию
+  COM_RST       : BOOL ;                    //полный рестарт
+  CYCLE         : TIME  := T#1S;            //время выполнения
+END_VAR
+VAR_OUTPUT
+  OUTV          : REAL ;                    //выходная переменная
+  QH_LM         : BOOL ;                    //верхний предел достигнут
+  QL_LM         : BOOL ;                    //нижний предел достигнут
+END_VAR
+VAR
+  sRest         : REAL ;   
+END_VAR
+VAR_TEMP
+  rTi           : REAL ;                    //время интегрирования в real
+  rCycle        : REAL ;                    //время выполнения блока в real
+  OutvNew       : REAL ;                    //Neue AusgangsgrцЯe
+  OutvDiff      : REAL ;                    //Дnderungswert
+END_VAR
+BEGIN
+IF COM_RST                 
+THEN                                        // если есть полный сброс
+    sRest:=0.0;
+    IF DFOUT_ON            
+    THEN                                   
+        OutvNew:=DF_OUTV;
+    ELSE
+        OutvNew:=0.0;
+    END_IF;
+ELSE
+    IF DFOUT_ON
+    THEN
+        OutvNew:=DF_OUTV;
+    ELSE
+        IF HOLD
+        THEN
+            OutvNew:=OUTV;
+            sRest:=0.0;
+        ELSE                                // расчет
+            rCycle:=DINT_TO_REAL(TIME_TO_DINT(CYCLE));
+            rTi:=DINT_TO_REAL(TIME_TO_DINT(TI));
+            IF rTi < rCycle THEN rTi:=rCycle; END_IF;
+            OutvDiff:=rCycle / rTi * INV + sRest;
+            OutvNew:=OutvDiff + OUTV;
+            sRest:=OUTV - OutvNew + OutvDiff;
+        END_IF;
+    END_IF;
+END_IF;
+IF  OutvNew >= H_LM
+THEN
+    QL_LM:=0;
+    QH_LM:=1;
+    OutvNew:=H_LM;
+ELSE
+    QH_LM:=0;
+    IF OutvNew <= L_LM
+    THEN
+        QL_LM:=1;
+        OutvNew:=L_LM;
+    ELSE
+        QL_LM:=0;
+    END_IF;
+END_IF;
+OUTV:=OutvNew;
+END_FUNCTION_BLOCK

@@ -1,0 +1,77 @@
+FUNCTION_BLOCK FB117
+TITLE =" override controlling"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : OVERRIDE
+VERSION : " 1.0"
+// reverse by komatic
+(*
+Контроль переполнения.
+Необходим для предотвращения ошибок переполнения.
+*)
+VAR_INPUT
+  PID1_ON           : BOOL ;    //ПИД регулятор 1 включить
+  PID2_ON           : BOOL ;    //ПИД регулятор 2 включить
+  OVR_MODE          : BOOL ;    //режим замещения FALSE/TRUE=MAX/MIN
+  PID1_OVR          : STRUCT    
+   PID_OUTV         : REAL ;    //PID выходная переменная
+   PID_SCTR         : REAL ;    //PID выходная переменная для шагового регулятора
+  END_STRUCT ;   
+  PID2_OVR          : STRUCT    
+   PID_OUTV         : REAL ;    //PID выходная переменная
+   PID_SCTR         : REAL ;    //PID выходная переменная для шагового регулятора
+  END_STRUCT ;   
+END_VAR
+VAR_OUTPUT
+  QPID1             : BOOL ;    //ПИД регулятор 1 активен
+  QPID2             : BOOL ;    //ПИД регулятор 1 активен
+  OVR_LMNG          : STRUCT    
+   PID_OUTV         : REAL ;    //PID выходная переменная
+   PID_SCTR         : REAL ;    //PID выходная переменная для шагового регулятора
+  END_STRUCT ;   
+END_VAR
+VAR_TEMP
+  drOutv            : REAL ;    //Zwischenspeicher fьr PID output variable
+END_VAR
+BEGIN
+IF PID1_ON XOR PID2_ON
+THEN                        // если один из регуляторов принудительнов включен
+    IF PID1_ON
+    THEN
+        QPID1:=1;
+        QPID2:=0;
+    ELSE
+        QPID1:=0;
+        QPID2:=1;
+    END_IF;
+ELSE                        // если ни один из регуляторов принудительно не включен
+    IF OVR_MODE            
+    THEN                    // если включен режим замещения по минимуму
+        IF PID1_OVR.PID_OUTV <= PID2_OVR.PID_OUTV
+        THEN
+            QPID1:=1;
+            QPID2:=0;
+        ELSE
+            QPID1:=0;
+            QPID2:=1;
+        END_IF;
+    ELSE                    // если включен режим замещения по максимуму
+        IF PID1_OVR.PID_OUTV >= PID2_OVR.PID_OUTV
+        THEN
+            QPID1:=1;
+            QPID2:=0;
+        ELSE
+            QPID1:=0;
+            QPID2:=1;
+        END_IF;
+    END_IF;
+END_IF;
+IF QPID1                    // записываем выход того регулятора чей признак установлен
+THEN
+    OVR_LMNG.PID_OUTV:=PID1_OVR.PID_OUTV;
+    OVR_LMNG.PID_SCTR:=PID1_OVR.PID_SCTR;
+ELSE
+    OVR_LMNG.PID_OUTV:=PID2_OVR.PID_OUTV;
+    OVR_LMNG.PID_SCTR:=PID2_OVR.PID_SCTR;
+END_IF;
+END_FUNCTION_BLOCK

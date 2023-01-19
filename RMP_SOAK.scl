@@ -1,0 +1,169 @@
+// не совпадает по checksum с оригиналом
+// не тестировалось
+FUNCTION_BLOCK FB121
+TITLE =" ramp soak"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : RMP_SOAK
+VERSION : " 1.1"
+// reverse by komatic
+(*
+Блок RMP_SOAK используется, главным образом, как генератор
+(формирователь) сигнала уставки в регуляторах, работающих с
+набором уставок, каждая из которых выбирается в заданное
+время.
+Функция RMP_SOAK позволяет сформировать временной график
+изменения сигнала, отдельные координаты которого должны
+храниться в общем блоке данных. Значения сигнала в отрезках
+времени между координатами интерполируются.
+С помощью управляющих параметров могут быть выбраны
+следующие режимы:
+• Активация функции RMP_SOAK;
+• Выдача выходного сигнала с заранее заданным значением;
+• Задержка "замораживание" работы;
+• Задание номера координаты и времени для продолжения работы;
+• Повторный запуск функции;
+• Изменение общего времени работы и общего оставшегося
+времени.
+*)
+VAR_INPUT
+  DF_OUTV   :           REAL ;              //выходная переменная по умолчанию
+  DB_NBR    :           BLOCK_DB ;          //номер блока данных
+  TM_SNBR   :           INT ;               //номер шага при прдолжении  (CONT_ON)
+  TM_CONT   :           TIME ;              //время при продолжении (CONT_ON)
+  DFOUT_ON  :           BOOL ;              //выходная переменная по умолчанию включить
+  RMPSK_ON  :           BOOL ;              //включить выполнение шагов
+  HOLD      :           BOOL ;              //режим удержания 
+  CONT_ON   :           BOOL ;              //продолжить с заданых параметров
+  CYC_ON    :           BOOL ;              //включить циклическое повторение
+  TUPDT_ON  :           BOOL ;              //обновить общее время
+  COM_RST   :           BOOL ;              //признак полного рестарта
+  CYCLE     :           TIME  := T#1S;      //время выполнения данного блока
+END_VAR
+VAR_OUTPUT
+  OUTV      :           REAL ;              //выходная переменная
+  QR_S_ACT  :           BOOL ;              //признак - функция отрабатывает шаги
+  NBR_ATMS  :           INT ;               //номер текущего шага
+  RS_TM     :           TIME ;              //оставшееся время на данном шаге
+  T_TM      :           TIME ;              //общее время для всех шагов
+  RT_TM     :           TIME ;              //оставшееся время для всех шагов
+END_VAR
+VAR
+  sOutEnd   :           REAL ;   
+  sOutOld   :           REAL ;   
+  siNbratms :           INT ;   
+  stRstm    :           TIME ;   
+  stTtm     :           TIME ;   
+  stRttm    :           TIME ;   
+  sbStart   :           BOOL ;              //признак старта обработки шагов
+  sbQrsact  :           BOOL ;              //признак выполнение программы обработки шагов
+END_VAR
+VAR_TEMP
+  Sollwert  :           REAL ;   
+  dOutNeu   :           REAL ;              //актульный выход
+  dJ        :           INT ;               //индексная переменная для циклов
+END_VAR
+BEGIN
+Sollwert:=DF_OUTV;                          // подготавливаем выход по умолчанию
+IF COM_RST                                  // если есть признак полного сброса
+THEN
+    stTtm:=T#0MS;                           // обнуление времени общего выполнения задания
+    FOR dJ:=0 TO WORD_TO_INT(DB_NBR.DW0) - 1 BY 1 DO
+        stTtm:=DINT_TO_TIME(DWORD_TO_DINT(DB_NBR.DD[dJ*8+6]))+stTtm;
+  // подсчет общего времени выполнения задания
+    END_FOR;
+    dOutNeu:=0.0;                           // выход
+    stRttm:=stTtm;                         
+    sOutEnd:=0.0;
+    siNbratms:=0;
+    stRstm:=T#0MS;
+    sbStart:=1;
+    sbQrsact:=0;
+ELSE
+    IF RMPSK_ON
+    THEN
+        IF sbStart
+        THEN
+            dOutNeu:=DWORD_TO_REAL(DB_NBR.DD2); 
+// текущая выходня переменная
+            sOutEnd:=DWORD_TO_REAL(DB_NBR.DD10);
+// следующя выходная переменная
+            stRstm:=DINT_TO_TIME(DWORD_TO_DINT(DB_NBR.DD6));  
+// время выдержки текущей выходной переменной
+            stRttm:=stTtm;
+            siNbratms:=1;
+            sbStart:=0;
+            sbQrsact:=1;
+        ELSE
+            IF HOLD   
+            THEN
+                sbQrsact:=0;
+                dOutNeu:=sOutOld;
+                IF CONT_ON
+                THEN
+                    sOutEnd:=DWORD_TO_REAL(DB_NBR.DD[TM_SNBR*8+2]);
+                    stRttm:=TM_CONT;
+                    stRstm:=TM_CONT;
+                    siNbratms:=TM_SNBR;
+                   FOR dJ:=siNbratms TO  WORD_TO_INT(DB_NBR.DW0) - 1 BY 1 DO
+                    stRttm:=DINT_TO_TIME(DWORD_TO_DINT(DB_NBR.DD[dJ*8+6]))+stRttm;
+                   END_FOR;
+                END_IF;
+            ELSE
+                IF stRstm > CYCLE       
+                THEN
+                    dOutNeu:=(sOutEnd-sOutOld) / DINT_TO_REAL(TIME_TO_DINT(stRstm))
+ * DINT_TO_REAL(TIME_TO_DINT(CYCLE)) + sOutOld;
+                    stRstm:=stRstm-CYCLE;
+                    stRttm:=stRttm-CYCLE;
+                ELSE
+                    IF siNbratms < WORD_TO_INT(DB_NBR.DW0)  
+                    THEN
+                        sOutEnd:=DWORD_TO_REAL(DB_NBR.DD[(siNbratms+1)*8+2]);
+                        dOutNeu:=DWORD_TO_REAL(DB_NBR.DD[siNbratms*8+2]); 
+                        stRstm:=DINT_TO_TIME(DWORD_TO_DINT(DB_NBR.DD[siNbratms*8+6]));
+                        siNbratms:=siNbratms+1;
+                        sbQrsact:=1;
+                        stRttm:=stRttm-CYCLE;
+                    ELSE
+                        IF CYC_ON
+                        THEN
+                            sbStart:=1;
+                        ELSE
+                            sbQrsact:=0;
+                        END_IF;
+                        dOutNeu:=DWORD_TO_REAL(DB_NBR.DD[siNbratms*8+2]);
+                    END_IF;
+                END_IF;
+            END_IF;
+        END_IF;
+    ELSE
+        sbStart:=1;
+        dOutNeu:=0.0;
+        QR_S_ACT:=0;
+    END_IF;
+    IF TUPDT_ON                 // обновить расчет времени
+    THEN
+        stTtm:=T#0MS;
+        stRttm:=stRstm;
+        FOR dJ:=0 TO WORD_TO_INT(DB_NBR.DW0)-1 BY 1 DO
+          stTtm:=DINT_TO_TIME(DWORD_TO_DINT(DB_NBR.DD[dJ*8+6]))+stTtm;
+        END_FOR;
+        FOR dJ:=siNbratms TO WORD_TO_INT(DB_NBR.DW0)-1 BY 1 DO
+          stRttm:=DINT_TO_TIME(DWORD_TO_DINT(DB_NBR.DD[dJ*8+6]))+stRttm;
+        END_FOR;
+    END_IF;
+END_IF;
+IF DFOUT_ON
+THEN
+    dOutNeu:=Sollwert;
+    sbQrsact:=0;
+END_IF;
+OUTV:=dOutNeu;
+sOutOld:=dOutNeu;
+QR_S_ACT:=sbQrsact;
+NBR_ATMS:=siNbratms;
+RS_TM:=stRstm;
+T_TM:=stTtm;
+RT_TM:=stRttm;
+END_FUNCTION_BLOCK

@@ -1,0 +1,143 @@
+FUNCTION_BLOCK FB101
+TITLE =" adaptive dead band"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : A_DEAD_B
+VERSION : " 1.0"
+// reverse by komatic
+(*
+Адаптивная зона нечувствительности.
+Обеспечивает фильтрацию сигналов.
+*)
+VAR_INPUT
+  INV           : REAL ;                        //входная переменная
+  DB_WH_LM      : REAL  := 5.000000e+000;       //верхняя граница зоны нечуствительности
+  DB_WL_LM      : REAL  := 1.000000e+000;       //нижняя граница зоны нечуствительности
+  CRIT_FRQ      : REAL  := 1.000000e-001;       //критическая частота
+  RET_FAC       : INT  := 1;                    //фактор возврата
+  ADAPT_ON      : BOOL ;                        //включить адаптивный алгоритм
+  COM_RST       : BOOL ;                        //полный рестарт
+  CYCLE         : TIME  := T#1S;                //время выполнения
+END_VAR
+VAR_OUTPUT
+  OUTV          : REAL ;                        //выходная переменная
+  DB_WIDTH      : REAL ;                        //эфективная ширина зоаны нечуствительности
+END_VAR
+VAR
+  sbPos         : BOOL ;   
+  sbNeg         : BOOL ;   
+  stP1          : TIME ;   
+  stP2          : TIME ;   
+  siZaehl       : INT ;   
+END_VAR
+VAR_TEMP
+  drOutv        : REAL ;                        //Zwischenspeicher OUTV
+  drDbWidth     : REAL ;                        //Zwischenspeicher DB_WIDTH
+  dbUp          : BOOL ;                        //Kennung "Totzonenbreite vergrцЯern"
+  dbDown        : BOOL ;                        //Kennung "Totzonenbreite verkleinern"
+END_VAR
+BEGIN
+IF COM_RST
+THEN
+    sbPos:=0;
+    sbNeg:=0;
+    dbUp:=0;
+    dbDown:=0;
+    stP1:=T#0MS;
+    stP2:=T#0MS;
+    siZaehl:=0;
+    OUTV:=0.0;
+    DB_WIDTH:=DB_WL_LM;
+ELSE
+    IF ADAPT_ON
+    THEN                            // адаптивный алгоритм включен
+        //----------       
+        dbDown:=0;
+        IF  stP1 >= CYCLE
+        THEN
+            stP1:=stP1 - CYCLE;
+            IF siZaehl >=1
+            THEN
+                dbUp:=1;
+            ELSE
+                dbUp:=0;
+            END_IF;
+        ELSE
+           siZaehl:=0;
+           dbUp:=0;
+        END_IF;    
+        //----------
+        IF INV < -DB_WIDTH
+        THEN
+            sbNeg:=1;
+            IF sbPos
+            THEN
+                stP1:=DINT_TO_TIME(REAL_TO_DINT(1000.0 / CRIT_FRQ));
+                siZaehl:=siZaehl+1;
+                sbPos:=0;
+            ELSE
+                dbUp:=0;
+            END_IF;
+            drOutv:=INV + DB_WIDTH;
+            stP2:=T#0MS;
+        ELSE
+        //----------
+            IF INV > DB_WIDTH  
+            THEN
+                sbPos:=1;
+                IF sbNeg
+                THEN
+                    stP1:=DINT_TO_TIME(REAL_TO_DINT(1000.0 / CRIT_FRQ));
+                    siZaehl:=siZaehl+1;
+                    sbNeg:=0;
+                ELSE    
+                    dbUp:=0;
+                END_IF;
+                drOutv:=INV - DB_WIDTH;
+                stP2:=T#0MS;
+            ELSE
+                dbUp:=0;
+                IF  stP2 >= CYCLE
+                THEN
+                    stP2:=stP2 - CYCLE;
+                    IF stP2 < CYCLE
+                    THEN
+                        dbDown:=1;
+                    END_IF;
+                ELSE
+                    stP2:=DINT_TO_TIME(REAL_TO_DINT(RET_FAC*1000.0/CRIT_FRQ));
+                END_IF;
+                drOutv:=0.0;
+            END_IF;   
+        //----------
+            IF dbUp
+            THEN
+                drDbWidth:=DB_WIDTH+0.1;
+                IF drDbWidth > DB_WH_LM THEN drDbWidth:=DB_WH_LM; END_IF;
+            ELSE
+                IF dbDown
+                THEN
+                    drDbWidth:=DB_WIDTH-0.1;
+                    IF drDbWidth < DB_WL_LM THEN drDbWidth:=DB_WL_LM; END_IF;
+                ELSE
+                    drDbWidth:=DB_WIDTH;
+                END_IF;
+                OUTV:=drOutv;
+                DB_WIDTH:=drDbWidth;
+            END_IF;
+        END_IF;               
+    ELSE                    // если адаптирование выключено
+        IF INV < -DB_WIDTH
+        THEN
+            OUTV:=INV+DB_WIDTH;
+        ELSE
+            IF INV > DB_WIDTH
+            THEN
+                OUTV:=INV-DB_WIDTH;
+            ELSE
+                OUTV:=0.0;
+            END_IF;
+        END_IF;
+    END_IF;
+END_IF;
+END_FUNCTION_BLOCK

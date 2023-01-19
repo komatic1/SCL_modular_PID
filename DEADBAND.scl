@@ -1,0 +1,29 @@
+FUNCTION_BLOCK FB105
+TITLE =" dead band"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : DEADBAND
+VERSION : " 1.0"
+// reverse by komatic
+(*
+Зона нечувствительности.
+*)
+VAR_INPUT
+  INV           : REAL ;                        //входная переменная
+  DEADB_W       : REAL  := 1.000000e+000;       //dead band width
+  DEADB_O       : REAL ;                        //dead band offset
+END_VAR
+VAR_OUTPUT
+  OUTV          : REAL ;                        //выходная переменная
+END_VAR
+BEGIN
+IF    INV < (DEADB_O - DEADB_W)
+THEN
+    OUTV:=INV + DEADB_W - DEADB_O;
+ELSIF INV > (DEADB_O + DEADB_W)
+THEN
+    OUTV:=INV - DEADB_W - DEADB_O;
+ELSE
+    OUTV:=0.0;
+END_IF;
+END_FUNCTION_BLOCK

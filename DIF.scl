@@ -1,0 +1,55 @@
+FUNCTION_BLOCK FB106
+TITLE =" differentiator"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : DIF
+VERSION : " 1.0"
+// reverse by komatic
+(*
+Дифференциатор.
+Вычисляет сигнал рассогласования и контролирует его граничные значения.
+*)
+VAR_INPUT
+  INV           : REAL ;                //входная переменная
+  TD            : TIME  := T#25S;       //время диференцирования
+  TM_LAG        : TIME  := T#5S;        //время действия диф.сост.
+  COM_RST       : BOOL ;                //полный рестарт
+  CYCLE         : TIME  := T#1S;        //периодичность выполнения блока
+END_VAR
+VAR_OUTPUT
+  OUTV          : REAL ;                //выходная переменная
+END_VAR
+VAR
+  sRueck        : REAL ;   
+  sRest         : REAL ;   
+END_VAR
+VAR_TEMP
+  rTd           : REAL ;                //время диференцирования в real
+  rTmLag        : REAL ;                //время действия диф.сост. в real
+  rCycle        : REAL ;                //время цикла в real
+  OutvNew       : REAL ;                //Neue AusgangsgrцЯe
+  Verstaerk     : REAL ;                //Verstдrkung
+  RueckDiff     : REAL ;                //Differenz des Rьckkopplungswertes
+  RueckAlt      : REAL ;                //Alter Rьckkopplungswert
+END_VAR
+BEGIN
+IF COM_RST
+THEN
+    sRest:=0.0;
+    OUTV:=0;
+    sRueck:=INV;
+ELSE
+    rCycle:=DINT_TO_REAL(TIME_TO_DINT(CYCLE));
+    rTd:=DINT_TO_REAL(TIME_TO_DINT(TD));
+    rTmLag:=DINT_TO_REAL(TIME_TO_DINT(TM_LAG));
+    IF rTd < rCycle THEN rTd:=rCycle; END_IF;
+    IF rTmLag < rCycle * 0.5 THEN rTmLag:=rCycle * 0.5; END_IF;
+    Verstaerk:= rTd / (rCycle * 0.5 + rTmLag);
+    OutvNew:= (INV - sRueck) * Verstaerk; 
+    RueckAlt:=sRueck;
+    RueckDiff:= rCycle / rTd  * OutvNew + sRest;
+    sRueck:=RueckDiff + RueckAlt;
+    sRest:=RueckAlt - sRueck + RueckDiff;
+    OUTV:=OutvNew;
+END_IF;
+END_FUNCTION_BLOCK

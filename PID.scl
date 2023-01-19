@@ -1,0 +1,251 @@
+FUNCTION_BLOCK FB119
+TITLE =" output PID-algorithm"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : PID
+VERSION : " 1.2"
+// reverse by komatic
+(*
+Блок PID содержит ПИД-алгоритмы и используется для создания
+регуляторов следующих типов:
+• ПИД-регулятор непрерывного управления:
+Блоки: PID + LMNGEN_C
+• Импульсный ПИД-регулятор для пропорциональных приводов:
+Блоки: PID + LMNGEN_C + PULSEGEN
+• ПИД-регулятор пошагового управления для пропорциональных
+приводов:
+Блоки: PID + LMNGEN_S
+Блок осуществляет PID алгоритм обработки входного сигнала.
+Блок конструктивно и функционально представляет собой
+параллельную структуру и функционирует исключительно как
+алгоритм позиционирования. Компоненты П-, И- и Д-,
+предназначенные для обработки входного сигнала, могут быть
+активизированы или выключены в индивидуальном порядке. Это
+позволяет конфигурировать П-, ПИ-, ПД- и ПИД- регуляторы на
+основе программного продукта Modular Control (Модульное
+управление).
+Компоненты П- и Д- могут быть также введены в цепь обратной
+связи. Помещая компоненты П- и Д- в цепи обратной связи
+регулятора, можно предотвратить скачкообразные изменения
+сигнала. При этом обычно нет необходимости использовать
+интегратор в цепи уставки (setpoint), чтобы избежать ступенчатых
+изменений уровня сигнала.
+В то время как блок PID вызывается в приоритетном классе
+циклических прерываний, период которого привязан к
+доминирующей постоянной времени системы, блоки обработки
+сигналов для привода (LMNGEN_C и LMNGEN_S) могут
+вызываться в приоритетном классе циклических прерываний с
+меньшим периодом.
+*)
+VAR_INPUT
+  ER            : REAL ;                    //сигнал ошибки
+  PV            : REAL ;                    //входная переменная
+  GAIN          : REAL  := 1.000000e+000;   //кфт пропорциональности
+  TI            : TIME  := T#20S;           //вримя интегрирования
+  I_ITLVAL      : REAL ;                    //значение инициализации для интегральной составляющей
+  TD            : TIME  := T#10S;           //время диференцирования
+  TM_LAG        : TIME  := T#2S;            //время задержки диференциальной составляющей
+  DISV          : REAL ;                    //сигнал рассогласования
+  P_SEL         : BOOL  := TRUE;            //выбор пропорциональной составляющей
+  PFDB_SEL      : BOOL ;                    //proportional action in feedback path selected
+  DFDB_SEL      : BOOL ;                    //derivative action in feedback path on
+  I_SEL         : BOOL  := TRUE;            //выбор интегральной составляющей
+  INT_HOLD      : BOOL ;                    //удерживание интегральной составляющей
+  I_ITL_ON      : BOOL ;                    //инициализировать интегральную составляющую
+  D_SEL         : BOOL ;                    //выбор диференциальной составляющей
+  DISV_SEL      : BOOL  := TRUE;            //выбор переменной рассогласования
+  COM_RST       : BOOL ;                    //полный рестарт
+  CYCLE         : TIME  := T#1S;            //время выполнения
+  LMNG_PID : STRUCT    
+   LMN          : REAL ;                    //выходное значение
+   LMN_HLM      : REAL ;                    //верхняя граница для выхода
+   LMN_LLM      : REAL ;                    //нижняя граница для выхода
+   R_MTR_TM     : REAL ;                    //motor manipulated value
+   ARWHL_ON     : BOOL ;                    //anti reset wind-up in high limit on
+   ARWLL_ON     : BOOL ;                    //anti reset wind-up in low limit on
+   MAN_ON       : BOOL ;                    //manual mode on
+   LMNGS_ON     : BOOL ;                    //PID-algorithm for step controller on
+   LMNR_ON      : BOOL ;                    //repeated manipulated value on
+  END_STRUCT ;   
+END_VAR
+VAR_OUTPUT
+  LMN_P         : REAL ;                    //пропорциональная составляющая
+  LMN_I         : REAL ;                    //интегральная составляющая
+  LMN_D         : REAL ;                    //диференциальная составляющая
+  PID_LMNG : STRUCT    
+   PID_OUTV     : REAL ;                    //PID output variable
+   PID_SCTR     : REAL ;                    //PID output variable for step controller
+  END_STRUCT ;   
+END_VAR
+VAR
+  sInvAlt       : REAL ;   
+  sIanteilAlt   : REAL ;   
+  sRestInt      : REAL ;   
+  sRestDif      : REAL ;   
+  sRueck        : REAL ;   
+  sbILimOn      : BOOL  := TRUE;   
+END_VAR
+VAR_TEMP
+  Hvar          : REAL ;                    //Hilfsvariable
+  ErKp          : REAL ;                    //Variable ER*GAIN
+  rTi           : REAL ;                    //Integrationszeit in real
+  rTd           : REAL ;                    //Differentiationszeit in real
+  rTmLag        : REAL ;                    //Verzцgerungszeit in real
+  rCycle        : REAL ;                    //Abtastzeit in real
+  Panteil       : REAL ;                    //P-Anteil
+  Ianteil       : REAL ;                    //I-Anteil
+  Diff          : REAL ;                    //Дnderungswert
+  Danteil       : REAL ;                    //D-Anteil
+  Verstaerk     : REAL ;                    //Verstдrkung
+  RueckDiff     : REAL ;                    //Differenz des Rьckkopplungswertes
+  RueckAlt      : REAL ;                    //Alter Rьckkopplungswert
+  dDisv         : REAL ;                    //disturbance variable
+  dLmn          : REAL ;                    //Stellwert
+  PidOutv       : REAL ;                    //PID-Ausgangswert
+  PidSctr       : REAL ;                    //PID-Ausgangswert fьr Schrittregler
+  rLmnHlm       : REAL ;                    //Obere Begrenzung
+  rLmnLlm       : REAL ;                    //Untere Begrenzung
+  rMtrTm        : REAL ;                    //Motorstellzeit
+  bArwhlOn      : BOOL ;                    //anti reset wind-up in high limit on
+  bArwllOn      : BOOL ;                    //anti reset wind-up in low LIMIT on
+  bManOn        : BOOL ;                    //manual mode on
+  bLmngsOn      : BOOL ;                    //PID-algorithm for step controller
+  bLmnrOn       : BOOL ;                    //step controller with repeated manipulated value
+END_VAR
+BEGIN
+IF COM_RST
+THEN
+    ErKp:=0.0;
+    Panteil:=0.0;
+    Ianteil:=0.0;
+    sRestInt:=0.0;
+    Danteil:=0.0;
+    sRueck:=0.0;
+    sRestDif:=0.0;
+    sInvAlt:=0.0;
+    sIanteilAlt:=0.0;
+    sRestInt:=0.0;
+    sRestDif:=0.0;
+    PidOutv:=0.0;
+    PidSctr:=0.0;
+ELSE
+    bManOn:=LMNG_PID.MAN_ON;
+    bLmngsOn:=LMNG_PID.LMNGS_ON;
+    bLmnrOn:=LMNG_PID.LMNR_ON;
+    dLmn:=LMNG_PID.LMN;
+    rLmnHlm:=LMNG_PID.LMN_HLM;
+    rLmnLlm:=LMNG_PID.LMN_LLM;
+    rMtrTm:=LMNG_PID.R_MTR_TM;
+    bArwhlOn:=LMNG_PID.ARWHL_ON;
+    bArwllOn:=LMNG_PID.ARWLL_ON;
+    ErKp:=ER*GAIN;
+    rTi:=DINT_TO_REAL(TIME_TO_DINT(TI))/1000.0;
+    rTd:=DINT_TO_REAL(TIME_TO_DINT(TD))/1000.0;
+    rTmLag:=DINT_TO_REAL(TIME_TO_DINT(TM_LAG))/1000.0;
+    rCycle:=DINT_TO_REAL(TIME_TO_DINT(CYCLE))/1000.0;
+    IF rTi < (rCycle * 0.5)
+    THEN
+        rTi:=rCycle * 0.5;
+    END_IF;
+    IF rTd < rCycle
+    THEN
+        rTd:=rCycle;
+    END_IF;
+    IF rTmLag < (rCycle * 0.5)
+    THEN
+        rTmLag:=rCycle * 0.5;
+    END_IF;
+    IF DISV_SEL
+    THEN
+        dDisv:=DISV;
+    ELSE
+        dDisv:=0.0;
+    END_IF;
+    IF P_SEL
+    THEN
+        IF PFDB_SEL
+        THEN
+            Panteil:=(-PV)*GAIN;
+        ELSE
+            Panteil:=ErKp;
+        END_IF;
+    ELSE
+        Panteil:=0.0;
+    END_IF;
+ //====================================================      
+    IF bLmngsOn   
+    THEN
+        Hvar:=rTi-ABS(0.01*ErKp*rMtrTm);
+        IF Hvar < (0.1*rTi)
+        THEN
+            rTi:=0.1*rTi;
+        ELSE
+            rTi:=Hvar;
+        END_IF;
+    END_IF;
+//=====================================================           
+    IF ((NOT bLmngsOn) AND I_SEL) OR (I_SEL AND bLmngsOn AND bLmnrOn)
+    THEN
+        IF I_ITL_ON
+        THEN
+            Ianteil:=I_ITLVAL;
+            sRestInt:=0.0;
+        ELSE
+            IF bManOn
+            THEN
+                IF bLmngsOn
+                THEN
+                    Ianteil:=dLmn;
+                ELSE
+                    Ianteil:=dLmn-Panteil-dDisv;
+                END_IF;
+                sRestInt:=0.0;
+            ELSE
+                Diff:=rCycle/rTi*(ErKp+sInvAlt)*0.5+sRestInt;
+                IF  (Diff > 0.0 AND bArwhlOn OR INT_HOLD) OR (Diff < 0.0 AND bArwllOn)
+                THEN
+                    Diff:=0.0;
+                END_IF;
+                Ianteil:=sIanteilAlt+Diff;
+                sRestInt:=sIanteilAlt-Ianteil+Diff;
+            END_IF;
+        END_IF;
+    ELSE    
+        Ianteil:=0.0;
+        sRestInt:=0.0;
+    END_IF;
+    IF (NOT bLmnrOn) AND bLmngsOn
+    THEN
+        PidSctr:=ErKp/rTi;
+    ELSE
+        PidSctr:=Ianteil;
+    END_IF;
+    IF DFDB_SEL
+    THEN
+        Diff:=(-PV)*GAIN;
+    ELSE
+        Diff:=ErKp;
+    END_IF;
+    IF (NOT LMNG_PID.MAN_ON) AND D_SEL
+    THEN
+        Verstaerk:=rTd/(rCycle*0.5+rTmLag);
+        Danteil:=(Diff-sRueck)*Verstaerk;
+        RueckAlt:=sRueck;
+        RueckDiff:=rCycle/rTd*Danteil+sRestDif;
+        sRueck:=RueckDiff+RueckAlt;
+        sRestDif:=RueckAlt-sRueck+RueckDiff;
+    ELSE
+        Danteil:=0.0;
+        sRestDif:=0.0;
+        sRueck:=Diff;
+    END_IF;
+    PidOutv:=Panteil+Ianteil+Danteil+dDisv;
+END_IF; 
+    LMN_P:=Panteil;
+    LMN_I:=Ianteil;
+    LMN_D:=Danteil;
+    sInvAlt:=ErKp;
+    sIanteilAlt:=Ianteil;
+    PID_LMNG.PID_OUTV:=PidOutv;
+    PID_LMNG.PID_SCTR:=PidSctr;
+END_FUNCTION_BLOCK

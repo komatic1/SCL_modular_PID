@@ -1,0 +1,100 @@
+FUNCTION_BLOCK FB125
+TITLE =" setpoint generator"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : SP_GEN
+VERSION : " 1.0"
+// reverse by komatic
+(*
+Функция SP_GEN позволяет с помощью ключей OUTVUP и
+OUTVDN увеличивать или уменьшать значение выходной
+переменной OUTV в пределах H_LM и L_LM.
+Скорость изменения переменной OUTV подчиняется правилу:
+В течение первых 3 с после активации OUTVUP или OUTVDN:
+d OUTV / d t = (H_LM – L_LM) / (100 с)
+Затем, по истечении 3 с:
+d OUTV / d t = (H_LM – L_LM) / (10 с).
+Верхние и нижние границы для выходной переменной задаются с
+помощью входных параметров: H_LM . OUTV . L_LM.
+Если происходит ограничение управляющей переменной с
+помощью граничных значений H_LM и L_LM, то устанавливаются
+сигнальные биты QH_LM и QL_LM.
+Если DFOUT_ON = TRUE (ИСТИНА), то OUTV = DF_OUTV.
+*)
+VAR_INPUT
+  DF_OUTV       : REAL ;                    //значение выхода по умолчанию
+  H_LM          : REAL  := 1.000000e+002;   //верхний предел переменной
+  L_LM          : REAL ;                    //нижний предел переменной
+  OUTVUP        : BOOL ;                    //выходную переменную выше
+  OUTVDN        : BOOL ;                    //выходную переменную ниже
+  DFOUT_ON      : BOOL ;                    //задание по умолчанию включить
+  COM_RST       : BOOL ;                    //полный рестарт
+  CYCLE         : TIME  := T#100MS;         //время выполнения
+END_VAR
+VAR_OUTPUT
+  OUTV          : REAL ;                    //выходная переменная
+  QH_LM         : BOOL ;                    //достигнута верхняя граница
+  QL_LM         : BOOL ;                    //достигнута нижняя граница
+END_VAR
+VAR
+  stUpSp        : TIME ;   
+  stDownSp      : TIME ;   
+  rCycle        : REAL ;   
+  Sollwert      : REAL ;   
+END_VAR
+BEGIN
+IF COM_RST
+THEN
+    Sollwert:=0.0;
+    stUpSp:=T#0MS;
+    stDownSp:=T#0MS;
+ELSE
+    rCycle:=DINT_TO_REAL(TIME_TO_DINT(CYCLE))/1000.0;
+    IF (NOT (OUTVUP OR QL_LM)) AND OUTVDN
+    THEN
+        stUpSp:=T#0MS;
+        stDownSp:=stDownSp+CYCLE;
+        IF stDownSp > T#3S
+        THEN
+            Sollwert:=Sollwert-((H_LM-L_LM)*rCycle/10.0);
+        ELSE
+            Sollwert:=Sollwert-((H_LM-L_LM)*rCycle/100.0);
+        END_IF;
+    ELSIF (NOT (OUTVDN OR QH_LM)) AND OUTVUP
+    THEN
+        stDownSp:=T#0MS;
+        stUpSp:=stUpSp+CYCLE;
+        IF stUpSp > T#3S
+        THEN
+            Sollwert:=Sollwert+((H_LM-L_LM)*rCycle/10.0);
+        ELSE
+            Sollwert:=Sollwert+((H_LM-L_LM)*rCycle/100.0);
+        END_IF;
+    ELSE
+        stUpSp:=T#0MS;            
+        stDownSp:=T#0MS;
+    END_IF;
+END_IF;
+IF DFOUT_ON
+THEN
+    Sollwert:=DF_OUTV;
+    stUpSp:=T#0MS;
+    stDownSp:=T#0MS;
+END_IF;
+IF  Sollwert >= H_LM
+THEN
+    QH_LM:=1;
+    QL_LM:=0;
+    Sollwert:=H_LM;
+ELSE
+    QH_LM:=0;   
+    IF Sollwert <= L_LM
+    THEN
+        QL_LM:=1;
+        Sollwert:=L_LM;
+    ELSE
+        QL_LM:=0;
+    END_IF;
+END_IF;
+OUTV:=Sollwert;
+END_FUNCTION_BLOCK

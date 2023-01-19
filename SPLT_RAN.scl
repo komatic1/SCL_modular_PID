@@ -1,0 +1,36 @@
+FUNCTION_BLOCK FB124
+TITLE =" split ranging"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : SPLT_RAN
+VERSION : " 1.0"
+// reversed by komatic
+(*
+Переключатель диапазонов.
+Выполняет автоматическое переключение пределов измерений.
+*)
+VAR_INPUT
+  INV           : REAL ;                    //входная переменная
+  STR_INV       : REAL ;                    //начало диапазона INV
+  EDR_INV       : REAL  := 5.000000e+001;   //конец диапазона INV
+  STR_OUTV      : REAL ;                    //начало диапазона OUTV
+  EDR_OUTV      : REAL  := 1.000000e+002;   //конец диапазона OUTV
+END_VAR
+VAR_OUTPUT
+  SPL_LMNG      : STRUCT    
+   PID_OUTV     : REAL ;                    //PID выходная переменная
+   PID_SCTR     : REAL ;                    //PID выходная переменная для шагового регулятора
+  END_STRUCT ;   
+END_VAR
+BEGIN
+IF INV <= STR_INV
+THEN
+    SPL_LMNG.PID_OUTV:=STR_OUTV;
+ELSIF INV >= EDR_INV
+THEN
+    SPL_LMNG.PID_OUTV:=EDR_OUTV;
+ELSE
+    SPL_LMNG.PID_OUTV:=(((EDR_OUTV - STR_OUTV) * INV) / (EDR_INV - STR_INV) + STR_OUTV) -
+                        ((EDR_OUTV - STR_OUTV) * STR_INV) / (EDR_INV - STR_INV); 
+END_IF;
+END_FUNCTION_BLOCK

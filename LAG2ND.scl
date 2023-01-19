@@ -1,0 +1,81 @@
+FUNCTION_BLOCK FB110
+TITLE =" second-order lag element"
+AUTHOR : AUT_1
+FAMILY : MODCONT
+NAME : LAG2ND
+VERSION : " 1.0"
+// reverse by komatic
+(*
+Задержка 2 порядка. Реализует задержку второго порядка.
+*)
+VAR_INPUT
+  INV           : REAL ;                    //входная переменная
+  TM_CONST      : TIME  := T#10S;           //константа времени
+  DAM_COEF      : REAL  := 1.000000e+000;   //damping coefficient
+  TRANCOEF      : REAL  := 1.000000e+000;   //transfer coefficient
+  DF_OUTV       : REAL ;                    //выход по умолчанию
+  DFOUT_ON      : BOOL ;                    //выход по умолчанию включить
+  TRACK         : BOOL ;                    //режим OUTV=INV
+  COM_RST       : BOOL ;                    //полный рестарт
+  CYCLE         : TIME  := T#1S;            //время выполнения
+END_VAR
+VAR_OUTPUT
+  OUTV          : REAL ;                    //выходная переменная
+END_VAR
+VAR
+  sRest1        : REAL ;   
+  sRest2        : REAL ;   
+  sRueck        : REAL ;   
+  sInt          : REAL ;   
+END_VAR
+VAR_TEMP
+  drTmCon       : REAL ;                    //Verzцgerungszeit in real
+  drCycle       : REAL ;                    //Abtastzeit in real
+  Hvar          : REAL ;                    //Hilfsvariable
+  RueckDiff     : REAL ;                    //Rьckkopplungsdifferenz
+  IntDiff       : REAL ;                    //Inkrement beim Integrieren
+  RueckAlt      : REAL ;                    //alter Rьckkopplungswert
+  IntAlt        : REAL ;                    //alter Integrierwert
+END_VAR
+BEGIN
+IF COM_RST
+THEN
+    OUTV:=0.0;
+    sRest1:=0.0;
+    sRest2:=0.0;
+    sRueck:=0.0;
+    sInt:=0.0;
+ELSE
+    IF TRACK
+    THEN
+        OUTV:=INV;
+        sRest1:=0.0;
+        sRest2:=0.0;
+        sRueck:=INV * TRANCOEF;
+        sInt:=INV*2.0*DAM_COEF;
+    ELSE
+        drCycle:=DINT_TO_REAL(TIME_TO_DINT(CYCLE));
+        drTmCon:=DINT_TO_REAL(TIME_TO_DINT(TM_CONST));
+        IF drTmCon < drCycle / 2.0  THEN drTmCon:=drCycle / 2.0; END_IF;
+        IntAlt:=sInt;
+        IntDiff:=(INV - (sRueck / TRANCOEF)) * drCycle / drTmCon + sRest1;
+        sInt:=IntDiff + sInt;
+        sRest1:=IntAlt - sInt + IntDiff;
+        RueckAlt:=sRueck;
+        Hvar:= drCycle / (drTmCon / DAM_COEF);
+        Hvar:=((sInt * TRANCOEF / (2*DAM_COEF) - RueckAlt) * Hvar) / (1 + Hvar);
+        OUTV:=Hvar+RueckAlt;
+        RueckDiff:=2.0 * Hvar + sRest2;
+        sRueck:=RueckDiff + RueckAlt;
+        sRest2:=RueckAlt-sRueck+RueckDiff;
+    END_IF;
+END_IF;
+IF DFOUT_ON
+THEN
+    OUTV:=DF_OUTV;
+    sRest1:=0.0;
+    sRest2:=0.0;
+    sRueck:=INV*TRANCOEF;
+    sInt:=INV*2.0*DAM_COEF;
+END_IF;
+END_FUNCTION_BLOCK
